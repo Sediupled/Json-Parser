@@ -1,10 +1,12 @@
 #include <iostream>
+#include <ostream>
 #include <variant>
 #include <unordered_map>
 #include <map>
 #include <vector>
 #include <fstream>
 #include <memory>
+#include <format>
 
 /*Token Types*/
 enum TokenType{
@@ -12,14 +14,10 @@ enum TokenType{
     NUMBER,
     BOOLEAN,
     NULLTYPE,
-    BEGINARR,
-    BEGINOBJ,
-    ENDARR,
-    ENDOBJ,
     NAME,
-    NAMESEP,
-    VALSEP,
-    EOFTYPE
+    EOFTYPE,
+    OBJECT,
+    ARRAY
 };
 
 /*Token Class Template*/
@@ -45,13 +43,23 @@ class Token{
 
 /*Json Structured Types, ts might be jank not sure yet*/
 struct JsonObj;
-struct JsonArr;
+struct JsonArray;
 /*using JsonVal = std::variant<std::unique_ptr<std::string>, std::unique_ptr<JsonObj>, std::unique_ptr<int>, std::unique_ptr<double>, std::unique_ptr<JsonArr>>;*/
-using JsonVal = std::variant<std::string, double, int>;
+using JsonVal = std::variant<std::string, double, int, JsonObj>;
 
 struct JsonObj{
     std::string name;
     std::unordered_map<std::string,JsonVal> contents;
+
+    friend std::ostream& operator<<(std::ostream& os, const JsonObj& obj){
+        os << "Object Name: " << obj.name << "\n";
+        for (const auto& [namestr,value]: obj.contents){
+            os << "  "<< namestr << ":";
+            std::visit([&os](const auto& arg){ os << arg <<"\n";}, value);
+        }
+        return os;
+    }
+    
 };
 
 struct JsonArray{
@@ -93,11 +101,20 @@ class Interpreter{
         template<typename V>
         Token<V> getNextToken(){
             Token<V> tok;
-            if (curChar == "\""){
-                tok = Token<V>(STRING,processString());
+            /*eof*/
+            if (pos>=text.length()){
+                tok = Token<V>(EOFTYPE,curChar);
+                return tok;
             }
+            /*string*/
+            else if (curChar == "\""){
+                tok = Token<V>(STRING,processString());
+                return tok;
+
+            }
+            /*number*/
             else if (curChar[0] >= '0' && curChar[0] <= '9' || curChar[0] == '.'){
-                std::string pnumstr= processNumber();
+                std::string pnumstr = processNumber();
 
                 if (pnumstr.contains(".")){
                     double pnum = std::stod(pnumstr);
@@ -107,27 +124,62 @@ class Interpreter{
                     int pnum = std::stoi(pnumstr);
                     tok = Token<V>(NUMBER,pnum);
                 }
+                return tok;
             }
-            else if(curChar[0] == '\n'){
+            /*json object*/
+            else if(curChar[0] == '{'){
+                
+                JsonObj jo = createObject<V>();
+                tok = Token<V>(OBJECT, jo);
+                return tok;
+            }
+            /*json array*/
+            /*else if(curChar[0] == '['){*/
+            /*    JsonArray ja = createArray();*/
+            /*    tok = Token<V>(ARRAY, ja);*/
+            /*    return tok;*/
+            /*}*/
+            /*newline*/
+            else if(curChar[0] == '\n'||curChar[0] == ':'||curChar[0] == ','){
                 pos++;
                 curChar = text[pos];
                 tok = getNextToken<V>();
-            }
-            else if (pos>=text.length()){
-                tok = Token<V>(EOFTYPE,curChar);
+                if(tok.t_type == EOFTYPE){
+                    return tok;
+                }
                 return tok;
             }
-            pos++;
-            curChar = text[pos];
-            return tok;
+            
+            /*whitespace*/
+            else{
+                skipWhitespace();
+                tok = getNextToken<V>();
+                return tok;
+            }
         }
 
         void eat(){}
 
 
         /*Parser*/
-        void createObj(){}
-        void createArray(){}
+        template<typename V>
+        JsonObj createObject(){
+            JsonObj retObj;
+            pos++;
+            curChar = text[pos];
+            while(curChar[0] !='}'){
+                std::string name = std::get<std::string>(getNextToken<V>().t_val);
+                JsonVal val = getNextToken<V>().t_val;
+                retObj.contents.emplace(name,val);
+                pos++;
+                curChar = text[pos];
+
+            }
+            curChar = text[++pos];
+
+            return retObj;
+        }
+        JsonArray createArray(){}
 
         std::string processNumber(){
             std::string numStr;
@@ -135,12 +187,9 @@ class Interpreter{
                 numStr += curChar;
                 curChar = text[++pos];
             }
-            pos--;
-            numStr.erase(std::remove(numStr.begin(), numStr.end(), '\n'), numStr.end());
             return numStr;
         }
 
-/*Returns with pos still on last character of string, generally "*/
         std::string processString(){
             std::string retstr;
             retstr += curChar;
@@ -151,9 +200,16 @@ class Interpreter{
             }
 
             retstr +=curChar;
+            curChar = text[++pos];
 
             return retstr;
         }
+
+       void skipWhitespace(){
+           while(curChar == " "){
+               curChar = text[++pos];
+           }
+       }
 
         template<typename V>
         void expr(){
@@ -194,9 +250,6 @@ int main(){
         {
             textFromFile += line + '\n';
         }
-        /*for(auto v: textFromFile){*/
-        /*    std::cout << v << std::endl;*/
-        /*}*/
     }
 
     Interpreter interp(textFromFile);
