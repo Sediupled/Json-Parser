@@ -32,10 +32,8 @@ class Token{
         Token(){}
         Token(TokenType type,V val) {
             t_type = type;
-            t_val = val;
+            t_val = std::move(val);
         }
-
-        ~Token(){}
 
         std::ostream& operator<<(std::ostream& os){
             os << "Token("<< this->t_type << " " << this->t_val << ")";
@@ -46,38 +44,61 @@ class Token{
 /*Json Structured Types, ts might be jank not sure yet*/
 struct JsonObj;
 struct JsonArray;
-/*using JsonVal = std::variant<std::unique_ptr<std::string>, std::unique_ptr<JsonObj>, std::unique_ptr<int>, std::unique_ptr<double>, std::unique_ptr<JsonArr>>;*/
-using JsonVal = std::variant<std::string, double, int, bool,JsonObj>;
+using JsonVal = std::variant<std::string, double, int, bool, std::unique_ptr<JsonObj>, std::unique_ptr<JsonArray>>;
 
 struct JsonObj{
     std::unordered_map<std::string,JsonVal> contents;
     int indentVal;
-
-
-    friend std::ostream& operator<<(std::ostream& os, const JsonObj& obj){
-        os << "{" << "\n";
-        for (const auto& [namestr,value]: obj.contents){
-            for (int i = 0; i<obj.indentVal;i++){
-                os << " ";
-            }
-            os << namestr << ":";
-            std::visit([&os](const auto& arg){ os << arg <<"\n";}, value);
-        }
-        if(obj.indentVal > 2){
-            for (int i = 0; i<obj.indentVal-2;i++){
-                os << " ";
-            }
-        }
-        os << "}" << "\n";
-        return os;
-    }
-    
+    friend std::ostream& operator<<(std::ostream& os, const JsonObj& obj);
 };
 
 struct JsonArray{
-    std::string name;
     std::map<int,JsonVal> contents;
+    int indentVal;
+    friend std::ostream& operator<<(std::ostream& os, const JsonArray& arr);
 };
+
+
+inline std::ostream& operator<<(std::ostream& os, const JsonObj& obj){
+    os << "{" << "\n";
+    for (const auto& [namestr,value]: obj.contents){
+        for (int i = 0; i<obj.indentVal;i++){
+            os << " ";
+        }
+        os << namestr << ":";
+        std::visit([&os](const auto& arg){ 
+                if constexpr(requires {*arg;}){
+                    if (arg) os << *arg <<"\n";
+                }else{
+                    os << arg << "\n";
+                }
+            }, value);
+    }
+    if(obj.indentVal > 2){
+        for (int i = 0; i<obj.indentVal-2;i++){
+            os << " ";
+        }
+    }
+    os << "}" << "\n";
+    return os;
+}
+
+inline std::ostream& operator<<(std::ostream& os, const JsonArray& arr){
+    os << "[" << "\n";
+    for (const auto& [index,value]: arr.contents){
+        for (int i = 0; i<arr.indentVal;i++){
+            os << " ";
+        }
+        std::visit([&os](const auto& arg){ os << arg <<"\n";}, value);
+    }
+    if(arr.indentVal > 2){
+        for (int i = 0; i<arr.indentVal-2;i++){
+            os << " ";
+        }
+    }
+    os << "]" << "\n";
+    return os;
+}
 
 struct JsonContents{
     std::vector<JsonVal> contents;
@@ -115,19 +136,16 @@ class Interpreter{
             Token<V> tok;
             /*eof*/
             if (pos>=text.length()){
-                tok = Token<V>(EOFTYPE,curChar);
-                return tok;
+                return Token<V>(EOFTYPE,curChar);
             }
             /*string*/
             else if (curChar == "\""){
-                tok = Token<V>(STRING,processString());
-                return tok;
+                return Token<V>(STRING,processString());
 
             }
             /*boolean*/
             else if (curChar == "t" ||curChar == "f"){
-                tok = Token<V>(BOOLEAN, processBool());
-                return tok;
+                return Token<V>(BOOLEAN, processBool());
             }
             /*number*/
             else if (curChar[0] >= '0' && curChar[0] <= '9' || curChar[0] == '.'){
@@ -135,29 +153,28 @@ class Interpreter{
 
                 if (pnumstr.contains(".")){
                     double pnum = std::stod(pnumstr);
-                    tok = Token<V>(NUMBER,pnum);
+                    return Token<V>(NUMBER,pnum);
                 }
                 else{
                     int pnum = std::stoi(pnumstr);
-                    tok = Token<V>(NUMBER,pnum);
+                    return Token<V>(NUMBER,pnum);
                 }
-                return tok;
             }
             /*json object*/
             else if(curChar[0] == '{'){
                 
                 JsonObj jo = createObject<V>(indentVal);
-                tok = Token<V>(OBJECT, jo);
-                return tok;
+                std::unique_ptr<JsonObj>jp = std::make_unique<JsonObj>(std::move(jo));
+                return Token<V>(OBJECT, std::move(jp));
             }
             /*json array*/
-            /*else if(curChar[0] == '['){*/
-            /*    JsonArray ja = createArray();*/
-            /*    tok = Token<V>(ARRAY, ja);*/
-            /*    return tok;*/
-            /*}*/
+            else if(curChar[0] == '['){
+                JsonArray ja = createArray<V>(indentVal);
+                std::unique_ptr<JsonArray>jap = std::make_unique<JsonArray>(std::move(ja));
+                return Token<V>(ARRAY, std::move(jap));
+            }
             /*newline*/
-            else if(curChar[0] == '\n'||curChar[0] == ':'||curChar[0] == ','){
+            else if(curChar[0] == '\n'||curChar[0] == ':'||curChar[0] == ','||curChar[0] == '\t'){
                 pos++;
                 curChar = text[pos];
                 tok = getNextToken<V>(indentVal);
@@ -189,8 +206,8 @@ class Interpreter{
             while(curChar[0] !='}'){
                 std::string name = std::get<std::string>(getNextToken<V>().t_val);
                 JsonVal val = getNextToken<V>(nextIndent).t_val;
-                retObj.contents.emplace(name,val);
-                curChar = text[++pos];
+                retObj.contents.emplace(name,std::move(val));
+                while(curChar[0] == '\n'){curChar = text[++pos];}
                 skipWhitespace();
 
             }
@@ -198,7 +215,27 @@ class Interpreter{
 
             return retObj;
         }
-        JsonArray createArray(){}
+        
+        template<typename V>
+        JsonArray createArray(int indentVal = 2){
+            JsonArray retArr;
+            retArr.indentVal = indentVal;
+            int nextIndent = indentVal + 2;
+            pos++;
+            curChar = text[pos];
+            int curIdx = 0;
+            while(curChar[0] !=']'){
+                JsonVal val = getNextToken<V>(nextIndent).t_val;
+                retArr.contents.emplace(curIdx,std::move(val));
+                while(curChar[0] == '\n'){curChar = text[++pos];}
+                skipWhitespace();
+                curIdx++;
+
+            }
+            curChar = text[++pos];
+
+            return retArr;
+        }
 
         std::string processNumber(){
             std::string numStr;
@@ -249,7 +286,7 @@ class Interpreter{
             Token<V> curToken = getNextToken<V>();
 
             while(curToken.t_type != EOFTYPE){
-                parsed.contents.push_back(curToken.t_val);
+                parsed.contents.push_back(std::move(curToken.t_val));
                 curToken = getNextToken<V>();
             }
         }
@@ -258,7 +295,13 @@ class Interpreter{
         {
             for(auto& val : parsed.contents)
             {
-                std::visit([](auto&& v){std::cout << v << std::endl;}, val);
+                std::visit([](auto&& v){
+                        if constexpr(requires {*v;}){
+                            std::cout << *v << std::endl;
+                        } else {
+                            std::cout << v << std::endl;
+                        }
+                }, val);
             }
         }
         
@@ -301,5 +344,3 @@ int main(){
         }
     }
 }
-
-
