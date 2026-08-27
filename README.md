@@ -1,1 +1,1 @@
-This is one of those projects I will end up scrutinizing and refactoring later. Learning more about Json, C++ and Interpreters.
+This is what I do for fun. Better Description once I finish making a fully spec compliant version
