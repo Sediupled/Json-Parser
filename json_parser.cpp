@@ -1,4 +1,5 @@
 #include <iostream>
+#include <cctype>
 #include <ostream>
 #include <variant>
 #include <unordered_map>
@@ -7,6 +8,7 @@
 #include <fstream>
 #include <memory>
 #include <format>
+#include <filesystem>
 
 /*Token Types*/
 enum TokenType{
@@ -45,18 +47,28 @@ class Token{
 struct JsonObj;
 struct JsonArray;
 /*using JsonVal = std::variant<std::unique_ptr<std::string>, std::unique_ptr<JsonObj>, std::unique_ptr<int>, std::unique_ptr<double>, std::unique_ptr<JsonArr>>;*/
-using JsonVal = std::variant<std::string, double, int, JsonObj>;
+using JsonVal = std::variant<std::string, double, int, bool,JsonObj>;
 
 struct JsonObj{
-    std::string name;
     std::unordered_map<std::string,JsonVal> contents;
+    int indentVal;
+
 
     friend std::ostream& operator<<(std::ostream& os, const JsonObj& obj){
-        os << "Object Name: " << obj.name << "\n";
+        os << "{" << "\n";
         for (const auto& [namestr,value]: obj.contents){
-            os << "  "<< namestr << ":";
+            for (int i = 0; i<obj.indentVal;i++){
+                os << " ";
+            }
+            os << namestr << ":";
             std::visit([&os](const auto& arg){ os << arg <<"\n";}, value);
         }
+        if(obj.indentVal > 2){
+            for (int i = 0; i<obj.indentVal-2;i++){
+                os << " ";
+            }
+        }
+        os << "}" << "\n";
         return os;
     }
     
@@ -99,7 +111,7 @@ class Interpreter{
         }
 
         template<typename V>
-        Token<V> getNextToken(){
+        Token<V> getNextToken(int indentVal = 2){
             Token<V> tok;
             /*eof*/
             if (pos>=text.length()){
@@ -111,6 +123,11 @@ class Interpreter{
                 tok = Token<V>(STRING,processString());
                 return tok;
 
+            }
+            /*boolean*/
+            else if (curChar == "t" ||curChar == "f"){
+                tok = Token<V>(BOOLEAN, processBool());
+                return tok;
             }
             /*number*/
             else if (curChar[0] >= '0' && curChar[0] <= '9' || curChar[0] == '.'){
@@ -129,7 +146,7 @@ class Interpreter{
             /*json object*/
             else if(curChar[0] == '{'){
                 
-                JsonObj jo = createObject<V>();
+                JsonObj jo = createObject<V>(indentVal);
                 tok = Token<V>(OBJECT, jo);
                 return tok;
             }
@@ -143,7 +160,7 @@ class Interpreter{
             else if(curChar[0] == '\n'||curChar[0] == ':'||curChar[0] == ','){
                 pos++;
                 curChar = text[pos];
-                tok = getNextToken<V>();
+                tok = getNextToken<V>(indentVal);
                 if(tok.t_type == EOFTYPE){
                     return tok;
                 }
@@ -153,7 +170,7 @@ class Interpreter{
             /*whitespace*/
             else{
                 skipWhitespace();
-                tok = getNextToken<V>();
+                tok = getNextToken<V>(indentVal);
                 return tok;
             }
         }
@@ -163,16 +180,18 @@ class Interpreter{
 
         /*Parser*/
         template<typename V>
-        JsonObj createObject(){
+        JsonObj createObject(int indentVal = 2){
             JsonObj retObj;
+            retObj.indentVal = indentVal;
+            int nextIndent = indentVal+2;
             pos++;
             curChar = text[pos];
             while(curChar[0] !='}'){
                 std::string name = std::get<std::string>(getNextToken<V>().t_val);
-                JsonVal val = getNextToken<V>().t_val;
+                JsonVal val = getNextToken<V>(nextIndent).t_val;
                 retObj.contents.emplace(name,val);
-                pos++;
-                curChar = text[pos];
+                curChar = text[++pos];
+                skipWhitespace();
 
             }
             curChar = text[++pos];
@@ -203,6 +222,20 @@ class Interpreter{
             curChar = text[++pos];
 
             return retstr;
+        }
+
+        bool processBool(){
+            bool retB = (curChar == "t");
+            if(retB){
+                pos+=4;
+            }
+            else{
+                pos+=5;
+            }
+
+            curChar = text[pos];
+
+            return retB;
         }
 
        void skipWhitespace(){
@@ -238,9 +271,9 @@ class Interpreter{
 /*---------------------------------------------------------------------------------------------------*/
 /*---------------------------------------------------------------------------------------------------*/
 
-int main(){
+void runTest(std::string filename){
     std::fstream jsonFile;
-    jsonFile.open("test.json", std::ios::in);
+    jsonFile.open(filename, std::ios::in);
 
     std::string textFromFile;
     std::string line;
@@ -255,5 +288,18 @@ int main(){
     Interpreter interp(textFromFile);
     interp.expr<JsonVal>();
     interp.deJSONify();
-
 }
+
+int main(){
+    namespace fs = std::filesystem;
+    fs::path curdir = ".";
+    for(const auto& entry: fs::directory_iterator(curdir)){
+        std::string fn = entry.path().filename().string();
+        if (std::isdigit(static_cast<unsigned char>(fn[0]))){
+            runTest(fn);
+            std::cout << "--------------------------------------------------------" << std::endl;
+        }
+    }
+}
+
+
