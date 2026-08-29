@@ -9,6 +9,7 @@
 #include <memory>
 #include <format>
 #include <filesystem>
+#include <stdexcept>
 
 /*Token Types*/
 enum TokenType{
@@ -19,7 +20,10 @@ enum TokenType{
     NAME,
     EOFTYPE,
     OBJECT,
-    ARRAY
+    ARRAY,
+    NAMESEP,
+    VALSEP,
+    ENDVAL
 };
 
 /*Token Class Template*/
@@ -44,7 +48,7 @@ class Token{
 /*Json Structured Types, ts might be jank not sure yet*/
 struct JsonObj;
 struct JsonArray;
-using JsonVal = std::variant<std::string, double, int, bool, std::unique_ptr<JsonObj>, std::unique_ptr<JsonArray>>;
+using JsonVal = std::variant<std::string, double, int, bool, std::nullptr_t, std::unique_ptr<JsonObj>, std::unique_ptr<JsonArray>>;
 
 struct JsonObj{
     std::unordered_map<std::string,JsonVal> contents;
@@ -89,7 +93,13 @@ inline std::ostream& operator<<(std::ostream& os, const JsonArray& arr){
         for (int i = 0; i<arr.indentVal;i++){
             os << " ";
         }
-        std::visit([&os](const auto& arg){ os << arg <<"\n";}, value);
+        std::visit([&os](const auto& arg){ 
+                if constexpr(requires {*arg;}){
+                    if (arg) os << *arg <<"\n";
+                }else{
+                    os << arg << "\n";
+                }
+            }, value);
     }
     if(arr.indentVal > 2){
         for (int i = 0; i<arr.indentVal-2;i++){
@@ -129,71 +139,80 @@ class Interpreter{
         /*Lexer*/
 
         void advance() {
+            curChar = text[++pos];
         }
 
         template<typename V>
         Token<V> getNextToken(int indentVal = 2){
-            Token<V> tok;
-            /*eof*/
-            if (pos>=text.length()){
-                return Token<V>(EOFTYPE,curChar);
-            }
-            /*string*/
-            else if (curChar == "\""){
-                return Token<V>(STRING,processString());
+            while(curChar != ""){
+                /*eof*/
+                if (pos>=text.length()){
+                    return Token<V>(EOFTYPE,curChar);
+                }
+                /*string*/
+                else if (curChar == "\""){
+                    return Token<V>(STRING,processString());
+                }
+                /*boolean*/
+                else if (curChar == "t" ||curChar == "f"){
+                    return Token<V>(BOOLEAN, processBool());
+                }
+                else if (curChar == "n"){
+                    return Token<V>(NULLTYPE,nullptr);
+                }
+                /*number*/
+                else if (curChar[0] >= '0' && curChar[0] <= '9' || curChar[0] == '.'){
+                    std::string pnumstr = processNumber();
 
-            }
-            /*boolean*/
-            else if (curChar == "t" ||curChar == "f"){
-                return Token<V>(BOOLEAN, processBool());
-            }
-            /*number*/
-            else if (curChar[0] >= '0' && curChar[0] <= '9' || curChar[0] == '.'){
-                std::string pnumstr = processNumber();
-
-                if (pnumstr.contains(".")){
-                    double pnum = std::stod(pnumstr);
-                    return Token<V>(NUMBER,pnum);
+                    if (pnumstr.contains(".")){
+                        double pnum = std::stod(pnumstr);
+                        return Token<V>(NUMBER,pnum);
+                    }
+                    else{
+                        int pnum = std::stoi(pnumstr);
+                        return Token<V>(NUMBER,pnum);
+                    }
+                }
+                /*json object*/
+                else if(curChar[0] == '{'){
+                    JsonObj jo = createObject<V>(indentVal);
+                    std::unique_ptr<JsonObj>jp = std::make_unique<JsonObj>(std::move(jo));
+                    return Token<V>(OBJECT, std::move(jp));
+                }
+                /*json array*/
+                else if(curChar[0] == '['){
+                    JsonArray ja = createArray<V>(indentVal);
+                    std::unique_ptr<JsonArray>jap = std::make_unique<JsonArray>(std::move(ja));
+                    return Token<V>(ARRAY, std::move(jap));
+                }
+                // end-array or end-object
+                else if(curChar == "]" || curChar == "}"){
+                    return Token<V>(ENDVAL, curChar);
+                }
+                /*skipping characters*/
+                else if(curChar[0] == '\n'||curChar[0] == '\t'||curChar[0] == '\r'){
+                    advance();
+                    continue;
+                }
+                // name,val separators
+                else if(curChar == ":"){
+                    advance();
+                    return Token<V>(NAMESEP, curChar);
+                }
+                else if(curChar == ","){
+                    advance();
+                    return Token<V>(VALSEP, curChar);
+                }
+                /*whitespace*/
+                else if(curChar == " "){
+                    skipWhitespace();
+                    continue;
                 }
                 else{
-                    int pnum = std::stoi(pnumstr);
-                    return Token<V>(NUMBER,pnum);
+                    throw std::runtime_error("Bad Token " + curChar + " at pos " + std::to_string(pos));
                 }
-            }
-            /*json object*/
-            else if(curChar[0] == '{'){
-                
-                JsonObj jo = createObject<V>(indentVal);
-                std::unique_ptr<JsonObj>jp = std::make_unique<JsonObj>(std::move(jo));
-                return Token<V>(OBJECT, std::move(jp));
-            }
-            /*json array*/
-            else if(curChar[0] == '['){
-                JsonArray ja = createArray<V>(indentVal);
-                std::unique_ptr<JsonArray>jap = std::make_unique<JsonArray>(std::move(ja));
-                return Token<V>(ARRAY, std::move(jap));
-            }
-            /*newline*/
-            else if(curChar[0] == '\n'||curChar[0] == ':'||curChar[0] == ','||curChar[0] == '\t'){
-                pos++;
-                curChar = text[pos];
-                tok = getNextToken<V>(indentVal);
-                if(tok.t_type == EOFTYPE){
-                    return tok;
-                }
-                return tok;
-            }
-            
-            /*whitespace*/
-            else{
-                skipWhitespace();
-                tok = getNextToken<V>(indentVal);
-                return tok;
             }
         }
-
-        void eat(){}
-
 
         /*Parser*/
         template<typename V>
@@ -201,18 +220,25 @@ class Interpreter{
             JsonObj retObj;
             retObj.indentVal = indentVal;
             int nextIndent = indentVal+2;
-            pos++;
-            curChar = text[pos];
+            advance();
             while(curChar[0] !='}'){
-                std::string name = std::get<std::string>(getNextToken<V>().t_val);
-                JsonVal val = getNextToken<V>(nextIndent).t_val;
-                retObj.contents.emplace(name,std::move(val));
-                while(curChar[0] == '\n'){curChar = text[++pos];}
+                try{
+                    std::string name = std::get<std::string>(getNextToken<V>().t_val);
+                    if (!checkColon<V>()) throw std::runtime_error("Missing Colon at pos " +  std::to_string(pos));
+                    JsonVal val = getNextToken<V>(nextIndent).t_val;
+                    if (!checkComma<V>()) throw std::runtime_error("Missing Comma at pos " +  std::to_string(pos));
+                    retObj.contents.emplace(name,std::move(val));
+                }
+                catch(const std::runtime_error& e){
+                    std::cout << e.what() << std::endl;
+                    break;
+                }
+
+                while(curChar[0] == '\n'){advance();}
                 skipWhitespace();
 
             }
-            curChar = text[++pos];
-
+            advance();
             return retObj;
         }
         
@@ -221,19 +247,18 @@ class Interpreter{
             JsonArray retArr;
             retArr.indentVal = indentVal;
             int nextIndent = indentVal + 2;
-            pos++;
-            curChar = text[pos];
+            advance();
             int curIdx = 0;
             while(curChar[0] !=']'){
                 JsonVal val = getNextToken<V>(nextIndent).t_val;
+                // checkComma();
                 retArr.contents.emplace(curIdx,std::move(val));
-                while(curChar[0] == '\n'){curChar = text[++pos];}
-                skipWhitespace();
+                // while(curChar[0] == '\n'){advance();}
+                // skipWhitespace();
                 curIdx++;
 
             }
-            curChar = text[++pos];
-
+            advance();
             return retArr;
         }
 
@@ -241,7 +266,7 @@ class Interpreter{
             std::string numStr;
             while(curChar[0] >= '0' && curChar[0] <= '9' || curChar[0] == '.'||curChar[0] == 'E'||curChar[0] == 'e'){
                 numStr += curChar;
-                curChar = text[++pos];
+                advance();
             }
             return numStr;
         }
@@ -249,15 +274,14 @@ class Interpreter{
         std::string processString(){
             std::string retstr;
             retstr += curChar;
-            curChar = text[++pos];
+            advance();
             while(curChar!= "\""){
                 retstr+= curChar;
-                curChar = text[++pos];
+                advance();
             }
 
             retstr +=curChar;
-            curChar = text[++pos];
-
+            advance();
             return retstr;
         }
 
@@ -277,8 +301,29 @@ class Interpreter{
 
        void skipWhitespace(){
            while(curChar == " "){
-               curChar = text[++pos];
+               advance();
            }
+       }
+
+       template<typename V>
+       bool checkColon(){
+            try {
+               TokenType t = getNextToken<V>().t_type;
+               return ( t == NAMESEP ||t == ENDVAL);
+            }catch(std::runtime_error& e){
+                throw e;
+            }
+       }
+
+       template<typename V>
+       bool checkComma(){
+           try {
+               TokenType t = getNextToken<V>().t_type;
+               return ( t == VALSEP ||t == ENDVAL);
+           }catch(std::runtime_error& e){
+                throw e;
+            }
+
        }
 
         template<typename V>
@@ -335,12 +380,12 @@ void runTest(std::string filename){
 
 int main(){
     namespace fs = std::filesystem;
-    fs::path curdir = ".";
+    fs::path curdir = "good_files";
     for(const auto& entry: fs::directory_iterator(curdir)){
         std::string fn = entry.path().filename().string();
         if (std::isdigit(static_cast<unsigned char>(fn[0]))){
-            runTest(fn);
-            std::cout << "--------------------------------------------------------" << std::endl;
+            runTest(entry.path().string());
+            std::cout << "---------------------TEST "+fn+" PASSED------------------" << std::endl;
         }
     }
 }
