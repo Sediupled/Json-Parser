@@ -17,3 +17,5 @@
 - [ ] Add JSON5 Support
 
 Follows RFC 8259 specification detailing The JavaScript Object Notation (JSON) Data Interchange Format (https://datatracker.ietf.org/doc/rfc8259/).
+
+Using C++23
