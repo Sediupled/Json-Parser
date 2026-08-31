@@ -3,7 +3,7 @@
 ## 🐿️ Usage:
 
 - Download the zip file and extract contents
-- put in only your JSON files in a new directory 
+- put in your JSON files in a directory 
 - Compile using the C++23 standard
 - Run with the directory's name as an argument
 - For Example: (./parser good_files/)
