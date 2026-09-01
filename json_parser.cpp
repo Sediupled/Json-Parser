@@ -21,7 +21,8 @@ enum TokenType{
     ARRAY,
     NAMESEP,
     VALSEP,
-    ENDVAL
+    ENDOBJ,
+    ENDARR
 };
 
 struct JsonObj;
@@ -176,8 +177,11 @@ class Interpreter{
                     return Token(ARRAY, std::move(jap));
                 }
                 // end-array or end-object
-                else if(curChar == "]" || curChar == "}"){
-                    return Token(ENDVAL, curChar);
+                else if(curChar == "}"){
+                    return Token(ENDOBJ, curChar);
+                }
+                else if(curChar == "]"){
+                    return Token(ENDARR, curChar);
                 }
                 /*skipping characters*/
                 else if(curChar == " "|| curChar[0] == '\n'||curChar[0] == '\t'||curChar[0] == '\r'){
@@ -214,14 +218,16 @@ class Interpreter{
             while(true){
                 try{
                     std::string name = std::get<std::string>(getNextToken().t_val);
-                    if (name == "}") throw std::runtime_error("Bad token "+ name +" near pos " +  std::to_string(pos));
-
+                    if (name == "}" || name == "]") throw std::runtime_error("Bad token "+ name +" near pos " +  std::to_string(pos));
                     if (!checkColon()) throw std::runtime_error("Missing Colon at pos " +  std::to_string(pos));
                     JsonVal val = getNextToken(nextIndent).t_val;
                     retObj.contents.emplace(name,std::move(val));
                     TokenType c_or_e = getNextToken(nextIndent).t_type;        
-                    if (c_or_e == ENDVAL){
+                    if (c_or_e == ENDOBJ){
                         break;
+                    }
+                    if(c_or_e == ENDARR){
+                        throw std::runtime_error("Bad Token ] at pos " +  std::to_string(pos));
                     }
                     if (c_or_e != VALSEP){
                         throw std::runtime_error("Missing Comma at pos " +  std::to_string(pos));
@@ -309,21 +315,21 @@ class Interpreter{
        bool checkColon(){
             try {
                TokenType t = getNextToken().t_type;
-               return ( t == NAMESEP ||t == ENDVAL);
+               return ( t == NAMESEP);
             }catch(std::runtime_error& e){
                 throw e;
             }
        }
 
-       bool checkComma(){
-           try {
-               TokenType t = getNextToken().t_type;
-               return ( t == VALSEP ||t == ENDVAL);
-           } catch(std::runtime_error& e){
-                throw e;
-            }
-
-       }
+       // bool checkComma(){
+       //     try {
+       //         TokenType t = getNextToken().t_type;
+       //         return ( t == VALSEP);
+       //     } catch(std::runtime_error& e){
+       //          throw e;
+       //      }
+       //
+       // }
 
         void expr(){
             Token curToken = getNextToken();
@@ -396,16 +402,24 @@ int main(int argc, char* argv[]){
         std::cerr << "File or Dir is Empty" << "\n";
         return EXIT_FAILURE; 
     }
+
+    const std::string SUCCESS = "\033[32m";
+    const std::string FAILURE = "\033[31m";
+    const std::string TEST = "\033[33m";
+
     for(const auto& entry: fs::directory_iterator(curdir)){
         std::string fn = entry.path().extension().string();
         if (fn == ".json"){
             try{
+            std::cout << TEST << "---------------------TESTING FILE "+entry.path().filename().string() +"------------------" << std::endl;
             runTest(entry.path().string());
             } catch(std::runtime_error& e){
-                std::cerr << e.what() << "\n";
-                return EXIT_FAILURE;
+                std::cerr << FAILURE << e.what() << "\n";
+
+            std::cout << FAILURE << "---------------------TEST "+entry.path().filename().string() +" FAILED------------------" << std::endl;
+                continue;
             }
-            std::cout << "---------------------TEST "+entry.path().filename().string() +" PASSED------------------" << std::endl;
+            std::cout << SUCCESS << "---------------------TEST "+entry.path().filename().string() +" PASSED------------------" << std::endl;
         }
     }
 }
