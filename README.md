@@ -4,7 +4,8 @@
 
 - Download the zip file and extract contents
 - Compile using the C++23 standard
-- Run with the directory's name as an argument
+- Run with a directory's name as an argument
+- Tests all json files in the chosen directory
 - For Example: (./parser good_files/)
 
 
