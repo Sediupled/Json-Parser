@@ -1,7 +1,6 @@
 ## Features
-- Use null values
+- check null and bool characters fully char by char
 - force lowercase for literal names
-- fix arrays
 - make numbers of all types usable within json
 - add number operation things asw using all representations in rfc
 - make sure json exchanged between systems is in utf-8, rfc 3629
@@ -9,8 +8,6 @@
 - Make sure string comparison between standard text and unicode text works (example: escape seqs)
 ## Testing
 - tests for all number formats
-- tests for arrays
-- tests for just values
 - tests for case in value naming
 - tests for strings
 

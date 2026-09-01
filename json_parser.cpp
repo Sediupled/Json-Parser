@@ -8,6 +8,7 @@
 #include <memory>
 #include <filesystem>
 #include <stdexcept>
+#include <format>
 
 /*Token Types*/
 enum TokenType{
@@ -142,10 +143,18 @@ class Interpreter{
                 }
                 /*boolean*/
                 else if (curChar == "t" ||curChar == "f"){
-                    return Token(BOOLEAN, processBool());
+                    try{
+                        return Token(BOOLEAN, processBool());
+                    } catch (std::runtime_error& e){
+                        throw e;
+                    }
                 }
                 else if (curChar == "n"){
-                    return Token(NULLTYPE,nullptr);
+                    try{
+                        return Token(NULLTYPE, processNull());
+                    } catch (std::runtime_error& e){
+                        throw e;
+                    }
                 }
                 /*number*/
                 else if (curChar[0] >= '0' && curChar[0] <= '9' || curChar[0] == '.'){
@@ -172,9 +181,13 @@ class Interpreter{
                 }
                 /*json array*/
                 else if(curChar[0] == '['){
+                    try {
                     JsonArray ja = createArray(indentVal);
                     std::unique_ptr<JsonArray>jap = std::make_unique<JsonArray>(std::move(ja));
                     return Token(ARRAY, std::move(jap));
+                    } catch (std::runtime_error& e){
+                        throw e;
+                    }
                 }
                 // end-array or end-object
                 else if(curChar == "}"){
@@ -251,13 +264,32 @@ class Interpreter{
             retArr.indentVal = indentVal;
             int nextIndent = indentVal + 2;
             advance();
+            skipWhitespace();
             int curIdx = 0;
-            while(curChar[0] !=']'){
-                JsonVal val = getNextToken(nextIndent).t_val;
-                // checkComma();
+            while(true){
+                Token t  = getNextToken(nextIndent);
+                JsonVal& val = t.t_val;
+                TokenType typ = t.t_type;
+                if(typ == ENDOBJ || typ == ENDARR || typ == NAMESEP || typ == VALSEP){
+                    std::string strval = std::get<std::string>(val);
+                    std::string msg = "Bad token" + strval +"at pos " + std::to_string(pos);
+                    throw std::runtime_error(msg);
+                }
                 retArr.contents.emplace(curIdx,std::move(val));
-                // while(curChar[0] == '\n'){advance();}
-                // skipWhitespace();
+
+                TokenType c_or_e = getNextToken(nextIndent).t_type;        
+                if (c_or_e == ENDARR){
+                    break;
+                }
+                if(c_or_e == ENDOBJ){
+                    throw std::runtime_error("Bad Token } at pos " +  std::to_string(pos));
+                }
+                if (c_or_e != VALSEP){
+                    throw std::runtime_error("Missing Comma at pos " +  std::to_string(pos));
+                }
+
+                skipWhitespace();
+
                 curIdx++;
 
             }
@@ -292,17 +324,29 @@ class Interpreter{
 
         // Leaves CurChar at first element of next valid json token
         bool processBool(){
-            bool retB = (curChar == "t");
-            if(retB){
+            if(curChar == "t" && "true"== text.substr(pos,4)){
                 pos+=4;
+                curChar = text[pos];
+                return true;
+            }
+            if(curChar == "f" && "false"== text.substr(pos,5)){
+                pos+=5;
+                curChar = text[pos];
+                return false;
             }
             else{
-                pos+=5;
+                throw std::runtime_error("Bad literal at " + std::to_string(pos));
             }
+        }
 
-            curChar = text[pos];
-
-            return retB;
+        std::nullptr_t processNull(){
+            if (curChar == "n" && "null" == text.substr(pos,4)){
+                pos+=4;
+                curChar = text[pos];
+                return nullptr;
+            } else{
+                throw std::runtime_error("Bad literal at pos " + std::to_string(pos));
+            }
         }
 
         // Leaves CurChar at first element of next valid json token
@@ -320,16 +364,6 @@ class Interpreter{
                 throw e;
             }
        }
-
-       // bool checkComma(){
-       //     try {
-       //         TokenType t = getNextToken().t_type;
-       //         return ( t == VALSEP);
-       //     } catch(std::runtime_error& e){
-       //          throw e;
-       //      }
-       //
-       // }
 
         void expr(){
             Token curToken = getNextToken();
