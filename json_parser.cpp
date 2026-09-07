@@ -8,7 +8,7 @@
 #include <memory>
 #include <filesystem>
 #include <stdexcept>
-#include <format>
+#include <regex>
 
 /*Token Types*/
 enum TokenType{
@@ -139,7 +139,11 @@ class Interpreter{
                 }
                 /*string*/
                 else if (curChar == "\""){
-                    return Token(STRING,processString());
+                    try{
+                        return Token(STRING,processString());
+                    } catch (std::runtime_error& e){
+                        throw e;
+                    }
                 }
                 /*boolean*/
                 else if (curChar == "t" ||curChar == "f"){
@@ -310,9 +314,14 @@ class Interpreter{
         // Leaves CurChar at first element of next valid json token
         std::string processString(){
             std::string retstr;
+            std::regex esc_reg(R"(\\.)");
             retstr += curChar;
             advance();
-            while(curChar!= "\""){
+            while(curChar != "\""){
+                if(std::regex_match(curChar, esc_reg) &&!validEscape(curChar[0]))
+                {
+                    throw std::runtime_error("Unexpected escape sequence in string");
+                }
                 retstr+= curChar;
                 advance();
             }
@@ -365,13 +374,28 @@ class Interpreter{
             }
        }
 
+       bool validEscape(const char& a){
+           return (a == '\b' || a == '\f'|| a == '\n' ||a == '\r' || a == '\\');
+       }
+
         void expr(){
             Token curToken = getNextToken();
-
+            if(curToken.t_type == EOFTYPE)
+            {
+                throw std::runtime_error("Unexpected End-of-File");
+            }
+            if(curToken.t_type == ENDOBJ||curToken.t_type == ENDARR)
+            {
+                throw std::runtime_error("Unexpected " + std::get<std::string>(curToken.t_val));
+            }
             while(curToken.t_type != EOFTYPE){
                 parsed.contents.push_back(std::move(curToken.t_val));
                 try{
                     curToken = getNextToken();
+                    if(curToken.t_type == ENDOBJ||curToken.t_type == ENDARR)
+                    {
+                        throw std::runtime_error("Unexpected " + std::get<std::string>(curToken.t_val));
+                    }
                 } catch (std::runtime_error& e){
                     throw e;
                 }
@@ -421,7 +445,7 @@ void runTest(const std::string&filename){
     } catch(std::runtime_error& e){
         throw e;
     }
-    interp.deJSONify();
+    // interp.deJSONify();
 }
 
 int main(int argc, char* argv[]){

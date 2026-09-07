@@ -1,6 +1,4 @@
 ## Features
-- check null and bool characters fully char by char
-- force lowercase for literal names
 - make numbers of all types usable within json
 - add number operation things asw using all representations in rfc
 - make sure json exchanged between systems is in utf-8, rfc 3629
