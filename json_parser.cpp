@@ -27,6 +27,8 @@ enum TokenType{
 };
 
 int numAllocs = 0;
+int numTokenCopies = 0;
+int numTokenMoves = 0;
 
 void* operator new (std::size_t count)
 {
@@ -59,6 +61,34 @@ class Token{
         JsonVal t_val;
 
         Token(TokenType type,JsonVal&& val) : t_type(type), t_val(std::move(val)){}
+        Token(Token& token) : t_type(token.t_type), t_val(std::move(token.t_val)){
+            numTokenCopies++;
+        }
+        Token(Token&& token) noexcept : t_type(token.t_type), t_val(std::move(token.t_val)){
+            numTokenMoves++;
+        }
+
+        Token& operator=(Token& other){
+            if(&other == this)
+            {
+                return *this;
+            }
+            t_type = other.t_type;
+            t_val = std::move(other.t_val);
+            numTokenCopies++;
+            return *this;
+        }
+        Token& operator=(Token&& other) noexcept {
+            if(&other == this)
+            {
+                return *this;
+            }
+            t_type = other.t_type;
+            t_val = std::move(other.t_val);
+            other.t_val = nullptr;
+            numTokenMoves++;
+            return *this;
+        }
 
         
 };
@@ -110,12 +140,6 @@ inline std::ostream& operator<<(std::ostream& os, const JsonArray& arr){
     return os;
 }
 
-struct JsonContents{
-    std::vector<JsonVal> contents;
-};
-
-
-
 
 /*---------------------------------------------------------------------------------------------------*/
 /*---------------------------------------------------------------------------------------------------*/
@@ -128,8 +152,8 @@ class Interpreter{
         int pos = 0;
         std::string curChar;
         std::string text;
-        JsonContents parsed;
-        Interpreter(std::string textFromFile){
+        std::vector<JsonVal> parsed;
+        Interpreter(std::string&& textFromFile){
             text = std::move(textFromFile);
             curChar = text[pos];
         }
@@ -181,12 +205,10 @@ class Interpreter{
                     }
 
                     if (pnumstr.contains(".")){
-                        double pnum = std::stod(pnumstr);
-                        return Token(NUMBER,std::move(pnum));
+                        return Token(NUMBER,std::stod(pnumstr));
                     }
                     else {
-                        int pnum = std::stoi(pnumstr);
-                        return Token(NUMBER,std::move(pnum));
+                        return Token(NUMBER,std::stoi(pnumstr));
                     }
                 }
                 /*json object*/
@@ -411,7 +433,7 @@ class Interpreter{
                 throw std::runtime_error("Unexpected " + std::get<std::string>(curToken.t_val));
             }
             while(curToken.t_type != EOFTYPE){
-                parsed.contents.push_back(std::move(curToken.t_val));
+                parsed.push_back(std::move(curToken.t_val));
                 try{
                     curToken = getNextToken();
                     if(curToken.t_type == ENDOBJ||curToken.t_type == ENDARR)
@@ -426,7 +448,7 @@ class Interpreter{
 
         void deJSONify()
         {
-            for(auto& val : parsed.contents)
+            for(auto& val : parsed)
             {
                 std::visit([](auto&& v){
                         if constexpr(requires {*v;}){
@@ -461,7 +483,7 @@ void runTest(const std::string& filename){
         }
     }
 
-    Interpreter interp(textFromFile);
+    Interpreter interp(std::move(textFromFile));
     try{
         interp.expr();
     } catch(std::runtime_error& e){
@@ -504,4 +526,6 @@ int main(int argc, char* argv[]){
     }
 
     std::cout << numAllocs <<" Allocations done." << std::endl;
+    std::cout << numTokenMoves <<" Token Moves done." << std::endl;
+    std::cout << numTokenCopies <<" Token Copies done." << std::endl;
 }
