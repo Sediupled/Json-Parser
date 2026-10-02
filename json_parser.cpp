@@ -26,6 +26,14 @@ enum TokenType{
     ENDARR
 };
 
+int numAllocs = 0;
+
+void* operator new (std::size_t count)
+{
+    numAllocs++;
+
+    return malloc(count);
+}
 struct JsonObj;
 struct JsonArray;
 using JsonVal = std::variant<std::string, double, int, bool, std::nullptr_t, std::unique_ptr<JsonObj>, std::unique_ptr<JsonArray>>;
@@ -50,7 +58,9 @@ class Token{
         TokenType t_type;
         JsonVal t_val;
 
-        Token(TokenType type,JsonVal val) : t_type(type), t_val(std::move(val)){}
+        Token(TokenType type,JsonVal&& val) : t_type(type), t_val(std::move(val)){}
+
+        
 };
 
 inline std::ostream& operator<<(std::ostream& os, const JsonObj& obj){
@@ -135,7 +145,7 @@ class Interpreter{
             while(curChar != ""){
                 /*eof*/
                 if (pos>=text.length()){
-                    return Token(EOFTYPE,curChar);
+                    return Token(EOFTYPE,"");
                 }
                 /*string*/
                 else if (curChar == "\""){
@@ -161,16 +171,22 @@ class Interpreter{
                     }
                 }
                 /*number*/
-                else if (curChar[0] >= '0' && curChar[0] <= '9' || curChar[0] == '.'){
+                else if (curChar[0] >= '0' && curChar[0] <= '9' || curChar[0] == '-'){
                     std::string pnumstr = processNumber();
+                    if(pnumstr.length()>0 && (pnumstr[0] == '0' || pnumstr[0] == '.')){
+                        throw std::runtime_error("Bad Number at pos " + std::to_string(pos));
+                    }
+                    else if( pnumstr.substr(0,2) == "-."){
+                        throw std::runtime_error("Bad Number at pos " + std::to_string(pos));
+                    }
 
                     if (pnumstr.contains(".")){
                         double pnum = std::stod(pnumstr);
-                        return Token(NUMBER,pnum);
+                        return Token(NUMBER,std::move(pnum));
                     }
-                    else{
+                    else {
                         int pnum = std::stoi(pnumstr);
-                        return Token(NUMBER,pnum);
+                        return Token(NUMBER,std::move(pnum));
                     }
                 }
                 /*json object*/
@@ -195,10 +211,10 @@ class Interpreter{
                 }
                 // end-array or end-object
                 else if(curChar == "}"){
-                    return Token(ENDOBJ, curChar);
+                    return Token(ENDOBJ, "}");
                 }
                 else if(curChar == "]"){
-                    return Token(ENDARR, curChar);
+                    return Token(ENDARR, "]");
                 }
                 /*skipping characters*/
                 else if(curChar == " "|| curChar[0] == '\n'||curChar[0] == '\t'||curChar[0] == '\r'){
@@ -206,13 +222,14 @@ class Interpreter{
                     continue;
                 }
                 // name,val separators
+                // TODO: Make The Tokens actually take name and valseps
                 else if(curChar == ":"){
+                    return Token(NAMESEP, ":");
                     advance();
-                    return Token(NAMESEP, curChar);
                 }
                 else if(curChar == ","){
+                    return Token(VALSEP, ",");
                     advance();
-                    return Token(VALSEP, curChar);
                 }
                 else{
                     throw std::runtime_error("Bad Token " + curChar + " at pos " + std::to_string(pos));
@@ -314,13 +331,15 @@ class Interpreter{
         // Leaves CurChar at first element of next valid json token
         std::string processString(){
             std::string retstr;
-            std::regex esc_reg(R"(\\.)");
+            std::regex esc_reg(R"(\\)");
             retstr += curChar;
             advance();
             while(curChar != "\""){
-                if(std::regex_match(curChar, esc_reg) &&!validEscape(curChar[0]))
+                if(std::regex_match(curChar, esc_reg))
                 {
-                    throw std::runtime_error("Unexpected escape sequence in string");
+                    if(!validEscape()){
+                        throw std::runtime_error("Unexpected escape sequence in string");
+                    }
                 }
                 retstr+= curChar;
                 advance();
@@ -374,8 +393,11 @@ class Interpreter{
             }
        }
 
-       bool validEscape(const char& a){
-           return (a == '\b' || a == '\f'|| a == '\n' ||a == '\r' || a == '\\');
+       bool validEscape(){
+           std::string matchee = text.substr(pos,3);
+           std::regex pat1 (R"(\\[b||f||n||r||t||"])");
+           std::regex pat2 (R"(\\\\[A-Za-z0-9]+)");
+           return std::regex_match(matchee, pat1) ||std::regex_match(matchee, pat1);
        }
 
         void expr(){
@@ -425,7 +447,7 @@ class Interpreter{
 /*---------------------------------------------------------------------------------------------------*/
 /*---------------------------------------------------------------------------------------------------*/
 
-void runTest(const std::string&filename){
+void runTest(const std::string& filename){
     std::fstream jsonFile;
     jsonFile.open(filename, std::ios::in);
 
@@ -480,4 +502,6 @@ int main(int argc, char* argv[]){
             std::cout << SUCCESS << "---------------------TEST "+entry.path().filename().string() +" PASSED------------------" << std::endl;
         }
     }
+
+    std::cout << numAllocs <<" Allocations done." << std::endl;
 }
