@@ -197,8 +197,13 @@ class Interpreter{
                 /*number*/
                 else if (curChar[0] >= '0' && curChar[0] <= '9' || curChar[0] == '-'){
                     std::string pnumstr = processNumber();
-                    if(pnumstr.length()>0 && (pnumstr[0] == '0' || pnumstr[0] == '.')){
-                        throw std::runtime_error("Bad Number at pos " + std::to_string(pos));
+                    if(
+                            pnumstr.length()>0 &&
+                            ((pnumstr[0]== '0' && pnumstr[1] != '.')|| pnumstr[0] == '.')
+                    )
+                    {
+                        throw std::runtime_error("Here 1 Bad Number at pos " + std::to_string(pos));
+
                     }
                     else if( pnumstr.substr(0,2) == "-."){
                         throw std::runtime_error("Bad Number at pos " + std::to_string(pos));
@@ -246,12 +251,12 @@ class Interpreter{
                 // name,val separators
                 // TODO: Make The Tokens actually take name and valseps
                 else if(curChar == ":"){
-                    return Token(NAMESEP, ":");
                     advance();
+                    return Token(NAMESEP, ":");
                 }
                 else if(curChar == ","){
-                    return Token(VALSEP, ",");
                     advance();
+                    return Token(VALSEP, ",");
                 }
                 else{
                     throw std::runtime_error("Bad Token " + curChar + " at pos " + std::to_string(pos));
@@ -276,7 +281,10 @@ class Interpreter{
                     std::string name = std::get<std::string>(getNextToken().t_val);
                     if (name == "}" || name == "]") throw std::runtime_error("Bad token "+ name +" near pos " +  std::to_string(pos));
                     if (!checkColon()) throw std::runtime_error("Missing Colon at pos " +  std::to_string(pos));
-                    JsonVal val = getNextToken(nextIndent).t_val;
+                    Token tok = getNextToken(nextIndent);
+                    JsonVal& val = tok.t_val;
+                    TokenType toktype = tok.t_type;
+                    if (toktype == ENDOBJ || toktype == ENDARR) throw std::runtime_error("Bad token near pos " +  std::to_string(pos));
                     retObj.contents.emplace(name,std::move(val));
                     TokenType c_or_e = getNextToken(nextIndent).t_type;        
                     if (c_or_e == ENDOBJ){
@@ -363,6 +371,10 @@ class Interpreter{
                         throw std::runtime_error("Unexpected escape sequence in string");
                     }
                 }
+                if(static_cast<int>(curChar[0]) < 32)
+                {
+                    throw std::runtime_error("Unescaped escape sequence here possibly");
+                }
                 retstr+= curChar;
                 advance();
             }
@@ -416,10 +428,11 @@ class Interpreter{
        }
 
        bool validEscape(){
-           std::string matchee = text.substr(pos,3);
-           std::regex pat1 (R"(\\[b||f||n||r||t||"])");
-           std::regex pat2 (R"(\\\\[A-Za-z0-9]+)");
-           return std::regex_match(matchee, pat1) ||std::regex_match(matchee, pat1);
+           std::string matchee = text.substr(pos,5);
+           std::cout << matchee << std::endl;
+           std::cout << text << std::endl;
+           std::regex pat1 (R"(\\(b|f|n|r|t|"|u[0-9a-fA-F]{4}|\\|/).*)");
+           return std::regex_match(matchee, pat1);
        }
 
         void expr(){
@@ -432,17 +445,11 @@ class Interpreter{
             {
                 throw std::runtime_error("Unexpected " + std::get<std::string>(curToken.t_val));
             }
-            while(curToken.t_type != EOFTYPE){
-                parsed.push_back(std::move(curToken.t_val));
-                try{
-                    curToken = getNextToken();
-                    if(curToken.t_type == ENDOBJ||curToken.t_type == ENDARR)
-                    {
-                        throw std::runtime_error("Unexpected " + std::get<std::string>(curToken.t_val));
-                    }
-                } catch (std::runtime_error& e){
-                    throw e;
-                }
+            parsed.push_back(std::move(curToken.t_val));
+            skipWhitespace();
+            if(pos<text.length())
+            {
+                throw std::runtime_error("Expected EOF");
             }
         }
 
@@ -499,6 +506,14 @@ int main(int argc, char* argv[]){
     }
     namespace fs = std::filesystem;
     fs::path curdir = argv[1];
+    if (fs::is_regular_file(curdir) && curdir.extension().string() == ".json")
+    {
+        runTest(curdir.string());
+        std::cout << numAllocs <<" Allocations done." << std::endl;
+        std::cout << numTokenMoves <<" Token Moves done." << std::endl;
+        std::cout << numTokenCopies <<" Token Copies done." << std::endl;
+        return 0;
+    }
 
     if (fs::is_empty(curdir)){
         std::cerr << "File or Dir is Empty" << "\n";
