@@ -38,7 +38,7 @@ void* operator new (std::size_t count)
 }
 struct JsonObj;
 struct JsonArray;
-using JsonVal = std::variant<std::string, double, int, bool, std::nullptr_t, std::unique_ptr<JsonObj>, std::unique_ptr<JsonArray>>;
+using JsonVal = std::variant<std::string, double, long long, bool, std::nullptr_t, std::unique_ptr<JsonObj>, std::unique_ptr<JsonArray>>;
 
 /*Json Structured Types, ts might be jank not sure yet*/
 struct JsonObj{
@@ -198,11 +198,11 @@ class Interpreter{
                 else if (curChar[0] >= '0' && curChar[0] <= '9' || curChar[0] == '-'){
                     std::string pnumstr = processNumber();
                     if(
-                            pnumstr.length()>0 &&
-                            ((pnumstr[0]== '0' && pnumstr[1] != '.')|| pnumstr[0] == '.')
+                            pnumstr.length()>1 &&
+                            ((pnumstr[0]== '0' && (pnumstr[1] != '.' && pnumstr[1] != 'E' && pnumstr[1] != 'e'))|| pnumstr[0] == '.')
                     )
                     {
-                        throw std::runtime_error("Here 1 Bad Number at pos " + std::to_string(pos));
+                        throw std::runtime_error("Here 1 Bad Number "+ pnumstr +" at pos " + std::to_string(pos));
 
                     }
                     else if( pnumstr.substr(0,2) == "-."){
@@ -213,7 +213,7 @@ class Interpreter{
                         return Token(NUMBER,std::stod(pnumstr));
                     }
                     else {
-                        return Token(NUMBER,std::stoi(pnumstr));
+                        return Token(NUMBER,std::stoll(pnumstr));
                     }
                 }
                 /*json object*/
@@ -280,6 +280,7 @@ class Interpreter{
                 try{
                     std::string name = std::get<std::string>(getNextToken().t_val);
                     if (name == "}" || name == "]") throw std::runtime_error("Bad token "+ name +" near pos " +  std::to_string(pos));
+                    std::cout << "curKey" << name << std::endl;
                     if (!checkColon()) throw std::runtime_error("Missing Colon at pos " +  std::to_string(pos));
                     Token tok = getNextToken(nextIndent);
                     JsonVal& val = tok.t_val;
@@ -351,7 +352,7 @@ class Interpreter{
         // Leaves CurChar at first element of next valid json token
         std::string processNumber(){
             std::string numStr;
-            while(curChar[0] >= '0' && curChar[0] <= '9' || curChar[0] == '.'||curChar[0] == 'E'||curChar[0] == 'e'){
+            while(curChar[0] >= '0' && curChar[0] <= '9' || curChar[0] == '.'||curChar[0] == 'E'||curChar[0] == 'e'||curChar[0] == '-'||curChar[0] == '+'){
                 numStr += curChar;
                 advance();
             }
@@ -524,6 +525,9 @@ int main(int argc, char* argv[]){
     const std::string FAILURE = "\033[31m";
     const std::string TEST = "\033[33m";
 
+    int numPassed = 0;
+    int numFailed = 0;
+
     for(const auto& entry: fs::directory_iterator(curdir)){
         std::string fn = entry.path().extension().string();
         if (fn == ".json"){
@@ -531,16 +535,19 @@ int main(int argc, char* argv[]){
             std::cout << TEST << "---------------------TESTING FILE "+entry.path().filename().string() +"------------------" << std::endl;
             runTest(entry.path().string());
             } catch(std::runtime_error& e){
+                numFailed++;
                 std::cerr << FAILURE << e.what() << "\n";
-
             std::cout << FAILURE << "---------------------TEST "+entry.path().filename().string() +" FAILED------------------" << std::endl;
                 continue;
             }
+            numPassed++;
             std::cout << SUCCESS << "---------------------TEST "+entry.path().filename().string() +" PASSED------------------" << std::endl;
         }
     }
 
-    std::cout << numAllocs <<" Allocations done." << std::endl;
-    std::cout << numTokenMoves <<" Token Moves done." << std::endl;
-    std::cout << numTokenCopies <<" Token Copies done." << std::endl;
+    std::cout << TEST << numAllocs <<" Allocations done." << std::endl;
+    std::cout << TEST << numTokenMoves <<" Token Moves done." << std::endl;
+    std::cout << TEST << numTokenCopies <<" Token Copies done." << std::endl;
+    std::cout << SUCCESS <<numPassed <<" Tests Passed" << std::endl;
+    std::cout << FAILURE <<numFailed <<" Tests Failed" << std::endl;
 }
