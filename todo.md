@@ -1,5 +1,6 @@
 ## Features
 - Value retrieval and other relevant json parsing functions
+- Improve memory management and data structures
 ## Testing
 - DONE FOR NOW!!
 ## Future
