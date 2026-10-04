@@ -197,23 +197,16 @@ class Interpreter{
                 /*number*/
                 else if (curChar[0] >= '0' && curChar[0] <= '9' || curChar[0] == '-'){
                     std::string pnumstr = processNumber();
-                    if(
-                            pnumstr.length()>1 &&
-                            ((pnumstr[0]== '0' && (pnumstr[1] != '.' && pnumstr[1] != 'E' && pnumstr[1] != 'e'))|| pnumstr[0] == '.')
-                    )
+                    try{
+                        if (pnumstr.contains(".")){
+                            return Token(NUMBER,std::stod(pnumstr));
+                        }
+                        else {
+                            return Token(NUMBER,std::stoll(pnumstr));
+                        }
+                    } catch (std::invalid_argument)
                     {
-                        throw std::runtime_error("Here 1 Bad Number "+ pnumstr +" at pos " + std::to_string(pos));
-
-                    }
-                    else if( pnumstr.substr(0,2) == "-."){
-                        throw std::runtime_error("Bad Number at pos " + std::to_string(pos));
-                    }
-
-                    if (pnumstr.contains(".")){
-                        return Token(NUMBER,std::stod(pnumstr));
-                    }
-                    else {
-                        return Token(NUMBER,std::stoll(pnumstr));
+                        throw std::runtime_error("Bad Number "+ pnumstr +" at pos " + std::to_string(pos));
                     }
                 }
                 /*json object*/
@@ -352,11 +345,20 @@ class Interpreter{
         // Leaves CurChar at first element of next valid json token
         std::string processNumber(){
             std::string numStr;
-            while(curChar[0] >= '0' && curChar[0] <= '9' || curChar[0] == '.'||curChar[0] == 'E'||curChar[0] == 'e'||curChar[0] == '-'||curChar[0] == '+'){
+            std::regex number(R"((-)?([1-9]\d*|[0])(\.\d+)?((e|E)[+-]?\d+)?)");
+
+            while (curChar[0] >= '0' && curChar[0] <= '9' || curChar[0] == '.'||curChar[0] == 'E'||curChar[0] == 'e'||curChar[0] == '-'||curChar[0] == '+'){
                 numStr += curChar;
                 advance();
             }
-            return numStr;
+
+            if(std::regex_match(numStr, number)){
+                return numStr;
+            }
+            else
+            {
+                throw std::runtime_error("Not Matching"+numStr+ " at pos" + std::to_string(pos));
+            }
         }
 
         // Leaves CurChar at first element of next valid json token
