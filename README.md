@@ -4,15 +4,15 @@
 
 - Download the zip file and extract contents
 - Compile using the C++23 standard
-- Run with a directory's name as an argument
+- Run with a directory or file's name as an argument
 - Tests all json files in the chosen directory
-- For Example: (./parser good_files/)
+- For Example: (./parser good_files/) or ./parser foo.json
 
 
 ## 🥅 Goals:
 - [x] Handles all JSON Constructs
 - [x] Handles Recursive Constructs
-- [ ] Full-Scale Syntax Error Handling
+- [x] Full-Scale Syntax Error Handling
 - [ ] Make it a usable library
 - [ ] Add JSON5 Support
 
