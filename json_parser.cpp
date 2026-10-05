@@ -150,9 +150,9 @@ inline std::ostream& operator<<(std::ostream& os, const JsonArray& arr){
 class Interpreter{
     public:
         int pos = 0;
-        std::string curChar;
+        char curChar;
         std::string text;
-        std::vector<JsonVal> parsed;
+        JsonVal parsed;
         Interpreter(std::string&& textFromFile){
             text = std::move(textFromFile);
             curChar = text[pos];
@@ -166,13 +166,9 @@ class Interpreter{
         }
 
         Token getNextToken(int indentVal = 2){
-            while(curChar != ""){
-                /*eof*/
-                if (pos>=text.length()){
-                    return Token(EOFTYPE,"");
-                }
+            while(curChar != '\0'){
                 /*string*/
-                else if (curChar == "\""){
+                if (curChar == '\"'){
                     try{
                         return Token(STRING,processString());
                     } catch (std::runtime_error& e){
@@ -180,14 +176,14 @@ class Interpreter{
                     }
                 }
                 /*boolean*/
-                else if (curChar == "t" ||curChar == "f"){
+                else if (curChar == 't' ||curChar == 'f'){
                     try{
                         return Token(BOOLEAN, processBool());
                     } catch (std::runtime_error& e){
                         throw e;
                     }
                 }
-                else if (curChar == "n"){
+                else if (curChar == 'n'){
                     try{
                         return Token(NULLTYPE, processNull());
                     } catch (std::runtime_error& e){
@@ -195,7 +191,7 @@ class Interpreter{
                     }
                 }
                 /*number*/
-                else if (curChar[0] >= '0' && curChar[0] <= '9' || curChar[0] == '-'){
+                else if (curChar >= '0' && curChar <= '9' || curChar == '-'){
                     std::string pnumstr = processNumber();
                     try{
                         if (pnumstr.contains(".")){
@@ -210,7 +206,7 @@ class Interpreter{
                     }
                 }
                 /*json object*/
-                else if(curChar[0] == '{'){
+                else if(curChar == '{'){
                     try{
                     JsonObj jo = createObject(indentVal);
                     std::unique_ptr<JsonObj>jp = std::make_unique<JsonObj>(std::move(jo));
@@ -220,7 +216,7 @@ class Interpreter{
                     }
                 }
                 /*json array*/
-                else if(curChar[0] == '['){
+                else if(curChar == '['){
                     try {
                     JsonArray ja = createArray(indentVal);
                     std::unique_ptr<JsonArray>jap = std::make_unique<JsonArray>(std::move(ja));
@@ -230,31 +226,33 @@ class Interpreter{
                     }
                 }
                 // end-array or end-object
-                else if(curChar == "}"){
+                else if(curChar == '}'){
                     return Token(ENDOBJ, "}");
                 }
-                else if(curChar == "]"){
-                    return Token(ENDARR, "]");
+                else if(curChar == ']'){
+                    return Token(ENDARR, ']');
                 }
                 /*skipping characters*/
-                else if(curChar == " "|| curChar[0] == '\n'||curChar[0] == '\t'||curChar[0] == '\r'){
+                else if(curChar == ' '|| curChar == '\n'||curChar == '\t'||curChar == '\r'){
                     skipWhitespace();
                     continue;
                 }
                 // name,val separators
-                // TODO: Make The Tokens actually take name and valseps
-                else if(curChar == ":"){
+                else if(curChar == ':'){
                     advance();
                     return Token(NAMESEP, ":");
                 }
-                else if(curChar == ","){
+                else if(curChar == ','){
                     advance();
                     return Token(VALSEP, ",");
                 }
-                else{
-                    throw std::runtime_error("Bad Token " + curChar + " at pos " + std::to_string(pos));
+                else
+                {
+                    throw std::runtime_error("Bad grammar " +std::to_string(curChar) + std::to_string(pos));
                 }
             }
+
+            return Token(EOFTYPE, "");
         }
 
         /*Parser*/
@@ -265,7 +263,7 @@ class Interpreter{
             advance();
             skipWhitespace();
             // Empty Object Case
-            if(curChar == "}"){
+            if(curChar == '}'){
                 advance();
                 return retObj;
             }
@@ -273,7 +271,7 @@ class Interpreter{
                 try{
                     std::string name = std::get<std::string>(getNextToken().t_val);
                     if (name == "}" || name == "]") throw std::runtime_error("Bad token "+ name +" near pos " +  std::to_string(pos));
-                    std::cout << "curKey" << name << std::endl;
+                    // std::cout << "curKey" << name << std::endl;
                     if (!checkColon()) throw std::runtime_error("Missing Colon at pos " +  std::to_string(pos));
                     Token tok = getNextToken(nextIndent);
                     JsonVal& val = tok.t_val;
@@ -297,7 +295,7 @@ class Interpreter{
                     throw e;
                 }
 
-                while(curChar[0] == '\n'){advance();}
+                while(curChar == '\n'){advance();}
                 skipWhitespace();
 
             }
@@ -345,36 +343,107 @@ class Interpreter{
         // Leaves CurChar at first element of next valid json token
         std::string processNumber(){
             std::string numStr;
-            std::regex number(R"((-)?([1-9]\d*|[0])(\.\d+)?((e|E)[+-]?\d+)?)");
+            int trackNum = 0;
 
-            while (curChar[0] >= '0' && curChar[0] <= '9' || curChar[0] == '.'||curChar[0] == 'E'||curChar[0] == 'e'||curChar[0] == '-'||curChar[0] == '+'){
-                numStr += curChar;
-                advance();
-            }
-
-            if(std::regex_match(numStr, number)){
-                return numStr;
-            }
-            else
+            // first character has to be - or digit
+            skipWhitespace();
+            if(trackNum ==0 && !(curChar == '-' || std::isdigit(curChar)))
             {
                 throw std::runtime_error("Not Matching"+numStr+ " at pos" + std::to_string(pos));
             }
+
+            numStr += curChar;
+            trackNum++;
+            advance();
+
+            // checks for 0232 or 00
+            if (numStr[0] == '0' && std::isdigit(curChar)){
+                throw std::runtime_error("Not Matching"+numStr+ " at pos" + std::to_string(pos));
+            }
+
+            while(curChar >= '0' && curChar <= '9')
+            {
+                //checks for -0232 or -00
+                if (trackNum == 2 && numStr.substr(0,2) == "-0" && std::isdigit(curChar)){
+                    throw std::runtime_error("Not Matching"+numStr+ " at pos" + std::to_string(pos));
+                }
+                numStr += curChar;
+                trackNum++;
+                advance();
+            }
+
+            if(curChar == '.')
+            {
+                if (numStr == "-")
+                {
+                    throw std::runtime_error("Not Matching"+numStr+ " at pos" + std::to_string(pos));
+                }
+                numStr += curChar;
+                trackNum++;
+                advance();
+                if(!std::isdigit(curChar))
+                {
+                    throw std::runtime_error("Not Matching"+numStr+ " at pos" + std::to_string(pos));
+                }
+            }
+
+            while(curChar >= '0' && curChar <= '9')
+            {
+                numStr += curChar;
+                trackNum++;
+                advance();
+            }
+
+            if(curChar == 'E' || curChar == 'e')
+            {
+                numStr += curChar;
+                trackNum++;
+                advance();
+
+                if(curChar == '+' || curChar == '-')
+                {
+                    numStr += curChar;
+                    trackNum++;
+                    advance();
+
+                }
+
+                if(!std::isdigit(curChar))
+                {
+                    throw std::runtime_error("Not Matching"+numStr+ " at pos" + std::to_string(pos));
+                }
+            }
+            while (curChar >= '0' && curChar <='9')
+            {
+                numStr += curChar;
+                trackNum++;
+                advance();
+            }
+
+
+            skipWhitespace();
+
+            if(curChar!= ',' && curChar != ']' && curChar != '}')
+            {
+                throw std::runtime_error("Not Matching"+numStr+ " at pos" + std::to_string(pos));
+            }
+
+            return numStr;
         }
 
         // Leaves CurChar at first element of next valid json token
         std::string processString(){
             std::string retstr;
-            std::regex esc_reg(R"(\\)");
             retstr += curChar;
             advance();
-            while(curChar != "\""){
-                if(std::regex_match(curChar, esc_reg))
+            while(curChar != '\"'){
+                if(curChar == '\\')
                 {
                     if(!validEscape()){
                         throw std::runtime_error("Unexpected escape sequence in string");
                     }
                 }
-                if(static_cast<int>(curChar[0]) < 32)
+                if(static_cast<int>(curChar) < 32)
                 {
                     throw std::runtime_error("Unescaped escape sequence here possibly");
                 }
@@ -389,12 +458,12 @@ class Interpreter{
 
         // Leaves CurChar at first element of next valid json token
         bool processBool(){
-            if(curChar == "t" && "true"== text.substr(pos,4)){
+            if(curChar == 't' && "true"== text.substr(pos,4)){
                 pos+=4;
                 curChar = text[pos];
                 return true;
             }
-            if(curChar == "f" && "false"== text.substr(pos,5)){
+            if(curChar == 'f' && "false"== text.substr(pos,5)){
                 pos+=5;
                 curChar = text[pos];
                 return false;
@@ -405,7 +474,7 @@ class Interpreter{
         }
 
         std::nullptr_t processNull(){
-            if (curChar == "n" && "null" == text.substr(pos,4)){
+            if (curChar == 'n' && "null" == text.substr(pos,4)){
                 pos+=4;
                 curChar = text[pos];
                 return nullptr;
@@ -416,7 +485,7 @@ class Interpreter{
 
         // Leaves CurChar at first element of next valid json token
        void skipWhitespace(){
-           while(curChar == " "|| curChar[0] == '\n'|| curChar[0] == '\t'|| curChar[0] == '\r'){
+           while(curChar == ' '|| curChar == '\n'|| curChar == '\t'|| curChar == '\r'){
                advance();
            }
        }
@@ -448,7 +517,7 @@ class Interpreter{
             {
                 throw std::runtime_error("Unexpected " + std::get<std::string>(curToken.t_val));
             }
-            parsed.push_back(std::move(curToken.t_val));
+            parsed = std::move(curToken.t_val);
             skipWhitespace();
             if(pos<text.length())
             {
@@ -456,18 +525,15 @@ class Interpreter{
             }
         }
 
-        void deJSONify()
+        void displayJson()
         {
-            for(auto& val : parsed)
-            {
-                std::visit([](auto&& v){
-                        if constexpr(requires {*v;}){
-                            std::cout << *v << std::endl;
-                        } else {
-                            std::cout << v << std::endl;
-                        }
-                }, val);
-            }
+            std::visit([](auto&& v){
+                    if constexpr(requires {*v;}){
+                        std::cout << *v << std::endl;
+                    } else {
+                        std::cout << v << std::endl;
+                    }
+            }, parsed);
         }
         
 };
@@ -499,7 +565,7 @@ void runTest(const std::string& filename){
     } catch(std::runtime_error& e){
         throw e;
     }
-    // interp.deJSONify();
+    // interp.displayJson();
 }
 
 int main(int argc, char* argv[]){
